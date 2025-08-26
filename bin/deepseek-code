@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+BASE="$HOME/mini-ufo"
+VENV="$BASE/venv"
+INT="$VENV/bin/interpreter"
+MODEL="${MODEL:-deepseek-chat}"                         # o: MODEL=deepseek-coder deepseek-code <ruta>
+API_BASE="${OPENAI_API_BASE:-https://api.deepseek.com}" # sin /v1
+KEY="${OPENAI_API_KEY:-${DEEPSEEK_API_KEY:-}}"
+
+if [[ "${1:-}" == "--doctor" ]]; then
+  echo "INT=$INT"
+  echo "MODEL=$MODEL"
+  echo "API_BASE=$API_BASE"
+  echo "KEY_SET=$([[ -n "$KEY" ]] && echo yes || echo no)"
+  exit 0
+fi
+
+[[ $# -ge 1 ]] || { echo "Uso: deepseek-code <ruta_proyecto>"; exit 2; }
+[[ -x "$INT" ]] || { echo "No encuentro Open-Interpreter en $INT"; exit 3; }
+[[ -n "$KEY" ]] || { echo "Falta OPENAI_API_KEY o DEEPSEEK_API_KEY"; exit 4; }
+
+PROJ="$(realpath "$1")"
+cd "$PROJ"
+mkdir -p outputs logs
+export OPENAI_API_KEY="$KEY"
+export OPENAI_API_BASE="$API_BASE"
+export OPENAI_BASE_URL="$API_BASE"
+
+exec "$INT" -y --model "$MODEL" --api_base "$OPENAI_API_BASE" --api_key "$OPENAI_API_KEY"

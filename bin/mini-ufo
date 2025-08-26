@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+BASE="$HOME/mini-ufo"
+PY="$BASE/venv/bin/python"
+AGENT="core.agent"
+
+usage(){ cat <<'H'
+mini-ufo <cmd> [...]
+  new <name>          Crea proyecto en ~/mini-ufo/projects/<name>
+  run <path> <obj>    Ejecuta agente en <path> con "<obj>"
+  vscode <path>       Abre VS Code en <path>
+  backend <b> [m]     Cambia backend (deepseek|ollama) y modelo
+  doctor              Diagnóstico rápido
+H
+}
+
+cmd="${1:-}"; [[ -z "${cmd}" ]] && usage && exit 1
+case "$cmd" in
+ new)
+   name="${2:-}"; [[ -z "$name" ]] && { echo "Falta <name>"; exit 2; }
+   proj="$BASE/projects/$name"
+   mkdir -p "$proj"/{outputs,logs}
+   cp -n "$BASE/templates/README.md" "$proj/README.md" 2>/dev/null || true
+   cp -n "$BASE/templates/main.py"   "$proj/main.py"   2>/dev/null || true
+   echo "OK proyecto: $proj"
+   ;;
+ run)
+   [[ $# -ge 3 ]] || { echo "Uso: mini-ufo run <path> \"<objetivo>\""; exit 2; }
+   proj="$(realpath "$2")"; shift 2; objective="$*"
+   mkdir -p "$proj"/{outputs,logs}
+   export PYTHONPATH="$BASE"
+   export MINIUFO_PROJECT_DIR="$proj"
+   export MINIUFO_OBJECTIVE="$objective"
+   echo ">>> RUN on $proj | objective: $objective"
+   "$PY" -m "$AGENT" | tee -a "$proj/logs/mini-ufo-run-$(date +%F-%H%M%S).log"
+   ;;
+ vscode)
+   p="${2:-}"; [[ -z "$p" ]] && { echo "Falta <path>"; exit 2; }
+   command -v code >/dev/null || { echo "Instala VS Code CLI (comando 'code')"; exit 3; }
+   code "$p"
+   ;;
+ backend)
+   b="${2:-}"; m="${3:-}"
+   [[ "$b" == "deepseek" || "$b" == "ollama" ]] || { echo "Backend inválido"; exit 2; }
+   BACKEND="$b" MODEL="$m" "$PY" - <<'PY'
+import os, pathlib, tomlkit
+cfg_path = pathlib.Path.home()/ "mini-ufo"/"core"/"config.toml"
+cfg = tomlkit.parse(cfg_path.read_text(encoding="utf-8"))
+b = os.environ["BACKEND"]; m = os.environ.get("MODEL")
+if b=="deepseek":
+  cfg["llm"]["backend"]="deepseek"; cfg["llm"]["model"]= m or "deepseek-coder"
+elif b=="ollama":
+  cfg["llm"]["backend"]="ollama";  cfg["llm"]["model"]= m or "llama3.1"
+cfg_path.write_text(tomlkit.dumps(cfg), encoding="utf-8")
+print("OK backend:", cfg["llm"]["backend"], "| model:", cfg["llm"]["model"])
+PY
+   ;;
+ doctor)
+   echo "BASE=$BASE"
+   echo "PY=$(readlink -f "$PY")"
+   "$PY" - <<'PY'
+import sys, os, tomlkit, pathlib
+print("Python:", sys.version.split()[0])
+print("DEEPSEEK_API_KEY:", "set" if os.getenv("DEEPSEEK_API_KEY") else "not-set")
+cfg = tomlkit.parse((pathlib.Path.home()/ "mini-ufo"/"core"/"config.toml").read_text(encoding="utf-8"))
+print("Backend:", cfg["llm"]["backend"], "| Model:", cfg["llm"]["model"])
+print("DeepSeek URL:", cfg["deepseek"]["base_url"])
+print("Ollama URL:",   cfg["ollama"]["base_url"])
+print("OK imports.")
+PY
+   ;;
+ *) usage && exit 1;;
+esac
